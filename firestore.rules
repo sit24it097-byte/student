@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string
+    //   - photoURL: string
+    //   - createdAt: string
+    //
+    // Collection: tasks
+    // Document ID: taskId
+    // Fields:
+    //   - id: string
+    //   - userId: string (required)
+    //   - title: string (required)
+    //   - description: string
+    //   - priority: string (required, enum: low, medium, high)
+    //   - deadline: string
+    //   - estimatedTime: number
+    //   - actualTime: number
+    //   - status: string (required, enum: pending, completed)
+    //   - createdAt: string
+    //
+    // Collection: timeLogs
+    // Document ID: logId
+    // Fields:
+    //   - id: string
+    //   - userId: string (required)
+    //   - taskId: string (required)
+    //   - startTime: string (required)
+    //   - endTime: string
+    //   - duration: number
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Domain Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email);
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['userId', 'title', 'priority', 'status']) &&
+             data.userId == request.auth.uid &&
+             data.priority in ['low', 'medium', 'high'] &&
+             data.status in ['pending', 'completed'];
+    }
+
+    function isValidTimeLog(data) {
+      return data.keys().hasAll(['userId', 'taskId', 'startTime']) &&
+             data.userId == request.auth.uid;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidTask(request.resource.data);
+      allow update: if isAuthenticated() && isDocOwner() && isValidTask(request.resource.data);
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+  }
+}
